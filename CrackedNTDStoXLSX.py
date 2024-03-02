@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# File name          : ldapsearch.py
+# File name          : CrackedNTDStoXLSX.py
 # Author             : Podalirius (@podalirius_)
-# Date created       : 29 Jul 2021
+# Date created       : 01 March 2023
+
 
 import argparse
 from ldap3.protocol.formatters.formatters import format_sid
 import ldap3
-from sectools.windows.ldap import raw_ldap_query, init_ldap_session
-from sectools.windows.crypto import nt_hash, parse_lm_nt_hashes
+from sectools.windows.ldap import init_ldap_session
 import os
 import traceback
 import sys
@@ -141,52 +141,11 @@ class LDAPSearcher(object):
             raise e
         return results
 
-    def print_colored_result(self, dn, data):
-        def _parse_print(element, depth=0, maxdepth=15, prompt=['  | ', '  └─>']):
-            _pre = prompt[0] * (depth) + prompt[1]
-            if depth < maxdepth:
-                if type(element) == ldap3.utils.ciDict.CaseInsensitiveDict:
-                    element = {key: value for key, value in element.items()}
-                if type(element) == dict:
-                    for key in element.keys():
-                        if type(element[key]) == dict:
-                            _parse_print(element[key], depth=(depth + 1), maxdepth=maxdepth, prompt=prompt)
-                        #
-                        elif type(element[key]) == ldap3.utils.ciDict.CaseInsensitiveDict:
-                            _ldap_ciDict = {key: value for key, value in element[key].items()}
-                            _parse_print(_ldap_ciDict, depth=(depth + 1), maxdepth=maxdepth, prompt=prompt)
-                        #
-                        elif type(element[key]) == list:
-                            if len(element[key]) == 0:
-                                print(_pre + "\"\x1b[92m%s\x1b[0m\": []" % str(key))
-                            elif len(element[key]) == 1:
-                                print(_pre + "\"\x1b[92m%s\x1b[0m\": [\x1b[96m%s\x1b[0m]" % (str(key), element[key][0]))
-                            else:
-                                print(_pre + "\"\x1b[92m%s\x1b[0m\": %s" % (str(key), "["))
-                                for _list_element in element[key]:
-                                    _parse_print(_list_element, depth=(depth + 1), maxdepth=maxdepth, prompt=prompt)
-                                print(_pre + "%s" % "],")
-                        #
-                        elif type(element[key]) == str:
-                            print(_pre + "\"\x1b[92m%s\x1b[0m\": \"\x1b[96m%s\x1b[0m\"," % (str(key), str(element[key])))
-                        #
-                        else:
-                            print(prompt[0] * (depth) + prompt[1] + "\"\x1b[92m%s\x1b[0m\": \x1b[96m%s\x1b[0m," % (str(key), str(element[key])))
-                else:
-                    print(prompt[0] * (depth) + prompt[1] + "\x1b[96m%s\x1b[0m" % str(element))
-            else:
-                # Max depth reached
-                pass
-        #
-        print("[>] %s" % dn)
-        _parse_print(data, prompt=['    ', '    '])
-
-
 
 def parse_args():
     default_attributes = ["accountExpires", "company", "department", "description", "displayName", "distinguishedName", "lastLogon", "lastLogonTimestamp", "memberOf", "whenChanged", "whenCreated"]
 
-    parser = argparse.ArgumentParser(add_help=True, description='CrackedNTDStoXLSX.py')
+    parser = argparse.ArgumentParser(add_help=True, description='A python tool to generate an Excel file linking the list of cracked accounts and their LDAP attributes.')
     parser.add_argument('--use-ldaps', action='store_true', help='Use LDAPS instead of LDAP')
     parser.add_argument("-debug", dest="debug", action="store_true", default=False, help="Debug mode")
 
@@ -219,6 +178,7 @@ def parse_args():
 
 
 def export_xlsx(options, results):
+    # Prepare file path
     basepath = os.path.dirname(options.xlsx)
     filename = os.path.basename(options.xlsx)
     if basepath not in [".", ""]:
@@ -228,6 +188,7 @@ def export_xlsx(options, results):
     else:
         path_to_file = filename
     
+    # Create Excel workbook
     # https://xlsxwriter.readthedocs.io/workbook.html#Workbook
     workbook_options = {
         'constant_memory': True, 
@@ -238,6 +199,7 @@ def export_xlsx(options, results):
     workbook = xlsxwriter.Workbook(filename=path_to_file, options=workbook_options)
     worksheet = workbook.add_worksheet()
     
+    # Prepare attributes
     if '*' in options.attributes:
         attributes = []
         options.attributes.remove('*')
@@ -248,22 +210,24 @@ def export_xlsx(options, results):
     else:
         attributes = options.attributes
    
+    # Format colmun headers
     header_format = workbook.add_format({'bold': 1})
+    header_format.set_pattern(1)
+    header_format.set_bg_color('green')
+    
     header_fields = ["domain", "username", "nthash", "password"]
-    # for h in header_fields:
-    #     attributes = attributes.remove(h)
     header_fields = header_fields + attributes
     for k in range(len(header_fields)):
         worksheet.set_column(k, k + 1, len(header_fields[k]) + 3)
-    worksheet.set_row(0, 40, header_format)
-    worksheet.write_row(0, 0, header_fields)
+    worksheet.set_row(row=0, height=40, cell_format=header_format)
+    worksheet.write_row(row=0, col=0, data=header_fields)
 
     row_id = 1
     for entry, ldapresults in results:
         data = [entry["domain"], entry["username"], entry["nthash"], entry["password"]]
         if len(ldapresults.keys()) != 1:
             if len(ldapresults.keys()) == 0:
-                worksheet.write_row(row_id, 0, data)
+                worksheet.write_row(row=row_id, col=0, data=data)
             else:
                 print("Error for entry:", entry)
                 print(list(ldapresults.keys()))
@@ -282,10 +246,15 @@ def export_xlsx(options, results):
                             data.append(str(value))
                     else:
                         data.append("")
-                worksheet.write_row(row_id, 0, data)
+                worksheet.write_row(row=row_id, col=0, data=data)
         row_id += 1
 
-    worksheet.autofilter(0, 0, row_id, len(header_fields) - 1)
+    worksheet.autofilter(
+        first_row=0, 
+        first_col=0, 
+        last_row=row_id, 
+        last_col=(len(header_fields)-1)
+    )
     workbook.close()
 
     print("[>] Written '%s'" % path_to_file)
