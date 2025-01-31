@@ -262,7 +262,7 @@ def export_xlsx(options, results):
 if __name__ == '__main__':
     options = parse_args()
 
-    print("CrackedNTDStoXLSX.py v%s - by @podalirius_\n" % VERSION)
+    print("CrackedNTDStoXLSX.py v%s - by Remi GASCOU (Podalirius)\n" % VERSION)
 
     # Parse hashes
     auth_lm_hash = ""
